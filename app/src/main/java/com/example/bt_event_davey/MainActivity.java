@@ -5,7 +5,6 @@ import android.app.ActionBar;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothHeadset;
-import android.bluetooth.BluetoothManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -13,11 +12,14 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.database.ContentObserver;
 import android.media.AudioManager;
+import android.media.ToneGenerator;
 import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.os.Handler;
 import android.telecom.CallAudioState;
-import android.view.KeyEvent;
+import android.telecom.TelecomManager;
+import android.telephony.TelephonyManager;
+import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.ArrayAdapter;
@@ -25,7 +27,6 @@ import android.widget.Button;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -33,15 +34,8 @@ import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
-
-import android.view.Window;
-import android.view.WindowManager;
-
-import static android.media.AudioManager.USE_DEFAULT_STREAM_TYPE;
-
-import java.lang.reflect.Array;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.Set;
 
 public class MainActivity extends AppCompatActivity {
     Button scanButton;
@@ -52,6 +46,9 @@ public class MainActivity extends AppCompatActivity {
     int headphoneState;
     Boolean firstRun=true;
     Boolean youkolMode=false;
+    ToneGenerator beeper = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100);
+
+    public static String TAG="PhoneStateReceiver";
 
     private SettingsContentObserver mSettingsContentObserver;
 
@@ -74,6 +71,7 @@ public class MainActivity extends AppCompatActivity {
 
     public static final int BLUETOOTH_PERMISSION_CODE = 100;
     public static final int LOCATION_PERMISSION_CODE = 101;
+    public static final int MY_PERMISSIONS_REQUEST_READ_PHONE_STATE = 102;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -90,7 +88,7 @@ public class MainActivity extends AppCompatActivity {
         //Toast.makeText(context, "App Started!", Toast.LENGTH_SHORT).show();
 
         BluetoothAdapter mBluetoothAdapter;
-        mAudioManager = (AudioManager)getSystemService(Context.AUDIO_SERVICE);
+        mAudioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
 
         IntentFilter filter = new IntentFilter();
         filter.addAction(BluetoothDevice.ACTION_ACL_CONNECTED);
@@ -106,6 +104,32 @@ public class MainActivity extends AppCompatActivity {
         populateListItem("[System] Headset");
         populateListItem("[System] Microphone");
         startYoukolMode();
+
+        if (ContextCompat.checkSelfPermission(this,
+                Manifest.permission.READ_PHONE_STATE)
+                != PackageManager.PERMISSION_GRANTED) {
+
+            // Should we show an explanation?
+            if (ActivityCompat.shouldShowRequestPermissionRationale(this,
+                    Manifest.permission.READ_PHONE_STATE)) {
+
+                // Show an explanation to the user *asynchronously* -- don't block
+                // this thread waiting for the user's response! After the user
+                // sees the explanation, try again to request the permission.
+
+            } else {
+
+                // No explanation needed, we can request the permission.
+
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.READ_PHONE_STATE},
+                        MY_PERMISSIONS_REQUEST_READ_PHONE_STATE);
+
+                // MY_PERMISSIONS_REQUEST_READ_PHONE_STATE is an
+                // app-defined int constant. The callback method gets the
+                // result of the request.
+            }
+        }
     }
 
     @Override
@@ -134,7 +158,7 @@ public class MainActivity extends AppCompatActivity {
                 int rssi = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE);
                 txtRSSI.setText(rssi + " dBm");
                 // muteMedia();
-                if (i == 1032) {
+                if (i == 1028) {
                     //Toast.makeText(getApplicationContext(), device.getName() + i,    Toast.LENGTH_SHORT).show();
                     //checkAgainstPolicy(2);
                     stopYoukolMode();
@@ -146,7 +170,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             } else if (BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
                 int i = device.getBluetoothClass().getDeviceClass();
-                if (i == 1032) {
+                if (i == 1028) {
                     strBTDeviceClass = (String) convertBTtype(i);
                     removeListItem("[" + strBTDeviceClass + "] " + device.getName());
                     startYoukolMode();
@@ -160,14 +184,10 @@ public class MainActivity extends AppCompatActivity {
                     muteMedia();
                     //stopYoukolMode();
                 } else if (headphoneState == 0) {
-                    if (firstRun == false) {
+                    if (!firstRun) {
                         //  Toast.makeText(getApplicationContext(), "3.5mm headphones disconnected - start Youkol mode", Toast.LENGTH_SHORT).show();
                         removeListItem("[Headphones] 3.5mm headphones");
-                        if (youkolMode == false) {
-                            startYoukolMode();
-                        }
-                    } else {
-                        firstRun = false;
+                        startYoukolMode();
                     }
                 }
             }
@@ -194,19 +214,20 @@ public class MainActivity extends AppCompatActivity {
                 int state = intent.getIntExtra(BluetoothHeadset.EXTRA_STATE, -1);
 
                 // New Bluetooth Device audio route appeared
-                if ((state == BluetoothHeadset.STATE_AUDIO_CONNECTED) && (deviceClass == 1032)) {
+                if ((state == BluetoothHeadset.STATE_AUDIO_CONNECTED) && (deviceClass == 1028)) {
                     Toast.makeText(context, "connected", Toast.LENGTH_SHORT).show();
                     mAudioManager.setMode(AudioManager.MODE_IN_CALL);
                     youkolMode = false;
                 }
 
                 // Bluetooth audio route disappeared
-                else if ((state == BluetoothHeadset.STATE_AUDIO_DISCONNECTED) && (deviceClass == 1032)) {
+                else if ((state == BluetoothHeadset.STATE_AUDIO_DISCONNECTED) && (deviceClass == 1028)) {
                     Toast.makeText(context, "disconnected", Toast.LENGTH_SHORT).show();
                     mAudioManager.setMode(AudioManager.MODE_IN_CALL);
                     mAudioManager.setMicrophoneMute(true);
+                    mAudioManager.adjustVolume(AudioManager.ADJUST_LOWER, AudioManager.FLAG_REMOVE_SOUND_AND_VIBRATE);
                     mAudioManager.adjustVolume(AudioManager.ADJUST_MUTE, AudioManager.FLAG_SHOW_UI);
-                    youkolMode = true;
+                    youkolMode = true;;
                 }
             } else if (intent.getAction().equals(AudioManager.ACTION_SPEAKERPHONE_STATE_CHANGED)) {
 
@@ -259,9 +280,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startYoukolMode(){
-        if (youkolMode){
-            //do nothing
-        } else {
+        if (!youkolMode){
             youkolMode = true;
             TextView txtYoukolMode = findViewById(R.id.textView2);
             txtYoukolMode.setText("Youkol mode is on");
@@ -271,9 +290,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void stopYoukolMode(){
-        if (!youkolMode){
-            //do nothing
-        } else {
+        if (youkolMode){
             youkolMode = false;
             TextView txtYoukolMode = findViewById(R.id.textView2);
             txtYoukolMode.setText("Youkol mode is off");
@@ -312,14 +329,21 @@ public class MainActivity extends AppCompatActivity {
 
             if (youkolMode) {
                 if (mAudioManager.getMode() == AudioManager.MODE_IN_CALL) {
+                    mAudioManager.setRingerMode(AudioManager.RINGER_MODE_NORMAL);
+                    mAudioManager.setStreamVolume(AudioManager.STREAM_RING, 14, AudioManager.FLAG_ALLOW_RINGER_MODES|AudioManager.FLAG_PLAY_SOUND);
                     mAudioManager.setMode(AudioManager.MODE_IN_CALL);
-                    mAudioManager.adjustVolume(AudioManager.ADJUST_MUTE, AudioManager.FLAG_PLAY_SOUND);
+                    mAudioManager.setStreamVolume(AudioManager.STREAM_DTMF, 0, AudioManager.ADJUST_RAISE);
+                    mAudioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, 14, AudioManager.ADJUST_RAISE);
                     mAudioManager.setMicrophoneMute(true);
+
+                    beeper.startTone(ToneGenerator.TONE_SUP_INTERCEPT);
+
                 } else {
-                    mAudioManager.adjustVolume(AudioManager.ADJUST_MUTE, AudioManager.FLAG_PLAY_SOUND);
+                    mAudioManager.adjustVolume(AudioManager.ADJUST_MUTE, AudioManager.FLAG_SHOW_UI);
+                    beeper.stopTone();
                 }
             } else {
-
+                beeper.stopTone();
             }
         }
     }
@@ -328,6 +352,7 @@ public class MainActivity extends AppCompatActivity {
     public void onBackPressed() {
         if (youkolMode) {
             Toast.makeText(MainActivity.this, "Going back in not allowed in Youkol mode", Toast.LENGTH_SHORT).show();
+
         }else {
             super.onBackPressed();
         }
@@ -372,10 +397,8 @@ public class MainActivity extends AppCompatActivity {
         //lastTouchX = e.getX();
         //lastTouchY = e.getY();
         //Toast.makeText(getApplicationContext(), "Touch event" + youkolMode.toString(), Toast.LENGTH_SHORT).show();
-        if (youkolMode==true) {
+        if (youkolMode) {
             hideNavBar();
-        }else {
-            //
         }
         return super.onTouchEvent(e);
     }
@@ -444,67 +467,67 @@ public class MainActivity extends AppCompatActivity {
         switch (deviceType) {
             case 1:
                 strDeviceType = "BT Headphones";
-                if (polBTHeadphones==false){
+                if (!polBTHeadphones){
                     startYoukolMode();
                 }
                 break;
             case 2:
                 strDeviceType = "BT Car Audio";
-                if (polBTCar==false){
+                if (!polBTCar){
                     startYoukolMode();
                 }
                 break;
             case 3:
                 strDeviceType = "BT Speaker";
-                if (polBTSpeaker==false){
+                if (!polBTSpeaker){
                     startYoukolMode();
                 }
                 break;
             case 4:
                 strDeviceType = "BT Other";
-                if (polBTOther==false){
+                if (!polBTOther){
                     startYoukolMode();
                 }
                 break;
             case 5:
                 strDeviceType = "USB Headset";
-                if (polUSBHeadphones==false){
+                if (!polUSBHeadphones){
                     startYoukolMode();
                 }
                 break;
             case 6:
                 strDeviceType = "USB Other";
-                if (polUSBOther==false){
+                if (!polUSBOther){
                     startYoukolMode();
                 }
                 break;
             case 7:
                 strDeviceType = "3.5mm Headphones";
-                if (polJackHeadphones==false){
+                if (!polJackHeadphones){
                     startYoukolMode();
                 }
                 break;
             case 8:
                 strDeviceType = "Speakerphone";
-                if (polSpeakerphone==false){
+                if (!polSpeakerphone){
                     startYoukolMode();
                 }
                 break;
             case 9:
                 strDeviceType = "Earpiece";
-                if (polEarpiece==false){
+                if (!polEarpiece){
                     startYoukolMode();
                 }
                 break;
             case 10:
                 strDeviceType = "Microphone";
-                if (polMicrophone==false){
+                if (!polMicrophone){
                     startYoukolMode();
                 }
                 break;
             case 11:
                 strDeviceType = "Screen";
-                if (polScreen==false){
+                if (!polScreen){
                     startYoukolMode();
                 }
                 break;
@@ -544,20 +567,34 @@ public class MainActivity extends AppCompatActivity {
 
         if (requestCode == BLUETOOTH_PERMISSION_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "Camera Permission Granted", Toast.LENGTH_SHORT) .show();
+                Toast.makeText(this, "Bluetooth Permission Granted", Toast.LENGTH_SHORT) .show();
+            } else {
+                Toast.makeText(this, "Bluetooth Permission Denied", Toast.LENGTH_SHORT) .show();
             }
-            else {
-                Toast.makeText(this, "Camera Permission Denied", Toast.LENGTH_SHORT) .show();
-            }
-        }
-        else if (requestCode == LOCATION_PERMISSION_CODE) {
+        } else if (requestCode == LOCATION_PERMISSION_CODE) {
             if (grantResults.length > 0
                     && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "Storage Permission Granted", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Location Permission Granted", Toast.LENGTH_SHORT).show();
             } else {
-                Toast.makeText(this, "Storage Permission Denied", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Location Permission Denied", Toast.LENGTH_SHORT).show();
             }
+        } else if (requestCode == MY_PERMISSIONS_REQUEST_READ_PHONE_STATE) {
+            // If request is cancelled, the result arrays are empty.
+            if (grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+
+                // permission was granted, yay!
+
+            } else {
+
+                // permission denied, boo! Disable the
+                // functionality that depends on this permission.
+            }
+            return;
         }
+
+        // other 'case' lines to check for other
+        // permissions this app might request
     }
 
 }
